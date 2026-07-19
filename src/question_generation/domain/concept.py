@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 
 @dataclass(slots=True)
-class Subject:
+class Concept:
     name: str
-    description: str = ""
+    chapter_name: str
+    weightage: str = "normal"

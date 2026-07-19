@@ -1,0 +1,2 @@
+class QuestionStorageService:
+    pass
