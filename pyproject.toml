@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oea-backend"
+version = "0.1.0"
+description = "AI-driven Computer-Based Test (CBT) question generation and evaluation backend"
+readme = "README.md"
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "fastapi>=0.139.2",
+    "uvicorn>=0.51.0",
+    "sqlalchemy>=2.0.51",
+    "pgvector>=0.5.0",
+    "psycopg[binary]>=3.3.4",
+    "pypdf>=6.14.2",
+    "google-genai>=2.12.1",
+    "python-dotenv>=1.2.2",
+]
