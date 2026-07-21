@@ -117,6 +117,8 @@ class QuestionModel(Base):
     # Admin controls and usage analytics
     is_active: Mapped[bool] = mapped_column(default=True, index=True)
     usage_count: Mapped[int] = mapped_column(default=0)
+     # 768 dimensions for Gemini text-embedding-004
+    embedding: Mapped[Optional[list[float]]] = mapped_column(Vector(768), nullable=True)
 
     # Composite Index for multi-field test query compilation (highly optimized search)
     __table_args__ = (

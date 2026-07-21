@@ -22,3 +22,4 @@ class Question:
     source_chunk_id: Optional[int] = None
     is_active: bool = True
     usage_count: int = 0
+    embedding: Optional[List[float]] = None

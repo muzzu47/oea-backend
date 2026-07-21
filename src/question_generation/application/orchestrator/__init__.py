@@ -1,6 +1,5 @@
 import logging
 from typing import List, Optional
-from sqlalchemy.orm import Session
 
 from question_generation.domain.textbook import Textbook
 from question_generation.domain.textbook_parsed_page import TextbookParsedPage
@@ -11,22 +10,23 @@ from question_generation.repository.textbook_repository import TextbookRepositor
 
 logger = logging.getLogger(__name__)
 
-class IngestionService:
+class IngestTextbookOrchestrator:
     """
-    Service responsible for orchestrating the complete ingestion pipeline:
-    1. Parse PDF pages to raw text (delegated to PdfParserService).
-    2. Save raw pages to PostgreSQL.
-    3. Segment raw pages into overlapping semantic chunks.
-    4. Call EmbeddingService to generate vector embeddings.
-    5. Save chunks and embeddings into PostgreSQL (pgvector).
+    Orchestrator responsible for executing the complete use-case workflow of
+    textbook ingestion:
+    1. Parsing PDF pages into raw text using PdfParserService.
+    2. Storing raw parsed pages into the database.
+    3. Segmenting raw pages into overlapping chunks.
+    4. Generating vector embeddings in bulk using EmbeddingService.
+    5. Storing chunks and their vectors into pgvector database via TextbookRepository.
     """
 
     def __init__(
-        self, 
-        parser: PdfParserService, 
+        self,
+        parser: PdfParserService,
         embedding_service: EmbeddingService,
         textbook_repository: TextbookRepository,
-        chunk_size: int = 1000, 
+        chunk_size: int = 1000,
         chunk_overlap: int = 200
     ):
         self.parser = parser
@@ -35,7 +35,7 @@ class IngestionService:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
 
-    def ingest_new_textbook(
+    def execute(
         self,
         file_path: str,
         title: str,
@@ -44,22 +44,21 @@ class IngestionService:
         exam_type: Optional[str] = None
     ) -> dict:
         """
-        Runs the complete, multi-stage ingestion pipeline with error handling.
-        Returns a dictionary summarizing results or errors.
+        Runs the textbook ingestion use case workflow.
+        Returns a dictionary representing the operation results or failure metrics.
         """
-        logger.info(f"Starting ingestion for textbook: {title}")
-        
-        # Step 1: Parse the PDF to raw pages
+        logger.info(f"Orchestrated Ingestion started for: {title}")
+
+        # Step 1: Parse the PDF
         try:
             pages_data = self.parser.parse(file_path)
-            logger.info(f"Successfully extracted {len(pages_data)} pages from PDF.")
+            logger.info(f"Step 1: Parsed {len(pages_data)} pages from PDF file.")
         except Exception as e:
-            logger.error(f"Failed to parse PDF file: {str(e)}")
+            logger.error(f"Step 1 Failed: PDF parsing failed: {str(e)}")
             return {"status": "failed", "stage": "parsing", "error": str(e)}
 
-        # Step 2: Register textbook and save raw pages to database
+        # Step 2: Register textbook metadata and store raw pages
         try:
-            # Check if textbook already exists
             db_textbook = self.repo.get_textbook_by_title(title)
             if not db_textbook:
                 domain_textbook = Textbook(
@@ -72,8 +71,8 @@ class IngestionService:
                 db_textbook = self.repo.save_textbook(domain_textbook)
             
             textbook_id = db_textbook.id
-            
-            # Map raw page dictionaries to domain models
+
+            # Save raw parsed pages to database
             domain_pages = [
                 TextbookParsedPage(
                     textbook_title=title,
@@ -84,41 +83,39 @@ class IngestionService:
                 )
                 for page in pages_data
             ]
-            
             self.repo.save_parsed_pages_bulk(textbook_id, domain_pages)
-            logger.info(f"Saved {len(domain_pages)} parsed pages to database.")
+            logger.info(f"Step 2: Saved {len(domain_pages)} parsed pages to Postgres.")
         except Exception as e:
-            logger.error(f"Failed to save parsed pages to database: {str(e)}")
+            logger.error(f"Step 2 Failed: Saving parsed pages to database failed: {str(e)}")
             return {"status": "failed", "stage": "saving_pages", "error": str(e)}
 
-        # Step 3: Segment pages into chunks
+        # Step 3: Segment pages into overlapping text chunks
         try:
             chunks = self.chunk_text(pages_data, title, subject_name, exam_type)
-            logger.info(f"Generated {len(chunks)} text chunks.")
+            logger.info(f"Step 3: Created {len(chunks)} overlapping text chunks.")
         except Exception as e:
-            logger.error(f"Failed to segment text into chunks: {str(e)}")
+            logger.error(f"Step 3 Failed: Chunking text failed: {str(e)}")
             return {"status": "failed", "stage": "chunking", "error": str(e)}
 
-        # Step 4: Compute Embeddings (External API Calls)
+        # Step 4: Bulk generate vector embeddings
         try:
             chunk_contents = [c.content for c in chunks]
-            # Bulk generate embeddings in batches
-            embeddings = self.embedding_service.get_embeddings_bulk(chunk_contents)
+            # Call our decoupled EmbeddingService to get batch embeddings
+            embeddings = self.embedding_service.generate_chunk_embeddings_bulk(chunk_contents)
             
-            # Assign vector embeddings back to chunks
             for idx, emb in enumerate(embeddings):
                 chunks[idx].embedding = emb
-            logger.info("Successfully generated embeddings for all chunks.")
+            logger.info("Step 4: Vector embeddings computed successfully via LLM Provider.")
         except Exception as e:
-            logger.error(f"Failed to generate embeddings: {str(e)}")
+            logger.error(f"Step 4 Failed: Embedding calculation failed: {str(e)}")
             return {"status": "failed", "stage": "embedding", "error": str(e)}
 
-        # Step 5: Save chunks and vectors in bulk
+        # Step 5: Save chunks and vector embeddings to database
         try:
             self.repo.save_chunks_bulk(textbook_id, chunks)
-            logger.info(f"Successfully saved {len(chunks)} chunks and vectors to database.")
+            logger.info(f"Step 5: Saved {len(chunks)} chunks and vectors to pgvector.")
         except Exception as e:
-            logger.error(f"Failed to save chunks and vectors to database: {str(e)}")
+            logger.error(f"Step 5 Failed: Saving chunks to pgvector failed: {str(e)}")
             return {"status": "failed", "stage": "saving_chunks", "error": str(e)}
 
         return {
@@ -129,14 +126,14 @@ class IngestionService:
         }
 
     def chunk_text(
-        self, 
-        pages_data: List[dict], 
-        textbook_title: str, 
-        subject_name: str, 
+        self,
+        pages_data: List[dict],
+        textbook_title: str,
+        subject_name: str,
         exam_type: Optional[str] = None
     ) -> List[Chunk]:
         """
-        Splits pages_data text into standard overlapping chunks.
+        Helper method to split raw page texts into standard overlapping chunks.
         """
         chunks: List[Chunk] = []
         chunk_idx = 0
@@ -144,14 +141,14 @@ class IngestionService:
         for page in pages_data:
             page_num = page["page_number"]
             text = page["text"]
-            
+
             start = 0
             text_len = len(text)
-            
+
             while start < text_len:
                 end = min(start + self.chunk_size, text_len)
                 chunk_text = text[start:end]
-                
+
                 chunk = Chunk(
                     textbook_title=textbook_title,
                     subject_name=subject_name,
@@ -163,11 +160,10 @@ class IngestionService:
                 )
                 chunks.append(chunk)
                 chunk_idx += 1
-                
-                # Advance window subtracting overlap
+
                 start += (self.chunk_size - self.chunk_overlap)
-                
+
                 if end == text_len:
                     break
-                    
+
         return chunks

@@ -36,13 +36,13 @@ class QuestionRepository:
             validator_remarks=question.validator_remarks,
             source_chunk_id=question.source_chunk_id,
             is_active=question.is_active,
-            usage_count=question.usage_count
+            usage_count=question.usage_count,
+            embedding=question.embedding
         )
         self.db.add(db_question)
         self.db.commit()
         self.db.refresh(db_question)
         return db_question
-
 
     def get_by_id(self, question_id: int) -> Optional[QuestionModel]:
         """
@@ -67,7 +67,7 @@ class QuestionRepository:
         stmt = select(QuestionModel).where(
             QuestionModel.subject == subject,
             QuestionModel.exam_type == exam_type,
-            QuestionModel.is_active == True  # <--- Only fetch active questions
+            QuestionModel.is_active == True  # Only fetch active questions
         )
         
         if difficulty_level:
@@ -79,7 +79,6 @@ class QuestionRepository:
             
         stmt = stmt.limit(count)
         return list(self.db.scalars(stmt).all())
-
 
     def update_validation_status(
         self, 
@@ -99,3 +98,31 @@ class QuestionRepository:
         result = self.db.execute(stmt)
         self.db.commit()
         return result.rowcount > 0
+
+    def get_most_similar_question_with_distance(
+        self,
+        query_embedding: List[float],
+        subject: str
+    ) -> Optional[tuple[QuestionModel, float]]:
+        """
+        Retrieves the single most similar question in the database and returns
+        a tuple containing the (QuestionModel, distance_float).
+        Cosine distance values: 0 is identical, 2 is opposite.
+        """
+        # Calculate distance column
+        distance_col = QuestionModel.embedding.cosine_distance(query_embedding)
+        
+        stmt = (
+            select(QuestionModel, distance_col)
+            .where(
+                QuestionModel.subject == subject,
+                QuestionModel.is_active == True,
+                QuestionModel.embedding.isnot(None)
+            )
+            .order_by(distance_col)
+            .limit(1)
+        )
+        
+        result = self.db.execute(stmt).first()
+        # Returns: (QuestionModel, distance) or None
+        return result

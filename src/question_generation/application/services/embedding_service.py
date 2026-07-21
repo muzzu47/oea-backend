@@ -1,65 +1,24 @@
-import os
 from typing import List
-from google import genai
-from google.genai.errors import APIError
+from question_generation.application.interfaces.llm_provider import LlmProvider
 
 class EmbeddingService:
     """
-    Service responsible for communicating with Google Gemini API to generate
-    high-dimensional vector embeddings for text chunks.
+    Business service responsible for coordinating vector embedding generation
+    for textbook chunks using an abstract LLM Provider.
     """
 
-    def __init__(self, model_name: str = "text-embedding-004"):
-        # Initialize Google Gen AI client.
-        # Checks GEMINI_API_KEY or GOOGLE_API_KEY from environment variables.
-        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-        if not api_key:
-            raise ValueError(
-                "Gemini API Key not found. Please set GEMINI_API_KEY or GOOGLE_API_KEY in your environment/dotenv."
-            )
-        self.client = genai.Client(api_key=api_key)
-        self.model_name = model_name
+    def __init__(self, llm_provider: LlmProvider):
+        # Inject the abstract LlmProvider interface, not the concrete Gemini client
+        self.llm_provider = llm_provider
 
-    def get_embedding(self, text: str) -> List[float]:
+    def generate_chunk_embedding(self, text: str) -> List[float]:
         """
-        Generates a vector embedding for a single text string.
+        Generates a vector embedding for a single text chunk.
         """
-        if not text or not text.strip():
-            raise ValueError("Input text cannot be empty.")
-            
-        try:
-            response = self.client.models.embed_content(
-                model=self.model_name,
-                contents=text
-            )
-            return response.embeddings[0].values
-        except APIError as e:
-            raise RuntimeError(f"Gemini Embedding API Error: {str(e)}")
-        except Exception as e:
-            raise RuntimeError(f"Unexpected error during embedding generation: {str(e)}")
+        return self.llm_provider.generate_embedding(text)
 
-    def get_embeddings_bulk(self, texts: List[str], batch_size: int = 20) -> List[List[float]]:
+    def generate_chunk_embeddings_bulk(self, texts: List[str]) -> List[List[float]]:
         """
-        Generates vector embeddings for a list of strings in batches.
-        Prevents hitting API payload limits and optimizes token throughput.
+        Generates vector embeddings for a list of chunks in bulk.
         """
-        if not texts:
-            return []
-
-        embeddings: List[List[float]] = []
-        
-        # Batch texts to prevent overloading the request size
-        for i in range(0, len(texts), batch_size):
-            batch = texts[i : i + batch_size]
-            try:
-                response = self.client.models.embed_content(
-                    model=self.model_name,
-                    contents=batch
-                )
-                embeddings.extend([e.values for e in response.embeddings])
-            except APIError as e:
-                raise RuntimeError(f"Gemini Bulk Embedding API Error on batch starting at index {i}: {str(e)}")
-            except Exception as e:
-                raise RuntimeError(f"Unexpected error in bulk embedding: {str(e)}")
-                
-        return embeddings
+        return self.llm_provider.generate_embeddings_bulk(texts)
