@@ -13,6 +13,10 @@ DATABASE_URL = os.getenv(
     "postgresql+psycopg://postgres:postgres@localhost:5432/oea_db"
 )
 
+# Defensive fix: Force SQLAlchemy to use psycopg 3 if legacy postgresql:// protocol is used
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
+
 # Initialize the SQLAlchemy engine
 # pool_pre_ping=True automatically tests connections before using them
 engine = create_engine(

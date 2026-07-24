@@ -94,3 +94,61 @@ class GeminiLlmProvider(LlmProvider):
                 raise RuntimeError(f"Unexpected error in bulk embedding: {str(e)}")
                 
         return embeddings
+
+    def extract_pdf_content(self, file_path: str) -> List[dict]:
+        """
+        Uses Gemini 2.5 Flash Multimodal API to parse scanned or image-heavy PDFs page-by-page.
+        Returns format: [{"page_number": int, "text": str}]
+        """
+        import json
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        if not os.path.exists(file_path):
+            raise ValueError(f"File not found for Gemini OCR: {file_path}")
+
+        logger.info(f"Uploading '{file_path}' to Gemini File API for Multimodal OCR parsing...")
+        uploaded_file = self.client.files.upload(file=file_path)
+        
+        try:
+            prompt = (
+                "Extract all text content from this textbook PDF document page by page. "
+                "Preserve all body text, section headers, key terms, definitions, and mathematical expressions. "
+                "Format your entire response strictly as a JSON array of objects with the keys 'page_number' (integer) and 'text' (string). "
+                "Example format: [{\"page_number\": 1, \"text\": \"Chapter 1: Units and Measurement...\"}]"
+            )
+
+            response = self.client.models.generate_content(
+                model=self.generation_model,
+                contents=[uploaded_file, prompt],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0.1
+                )
+            )
+
+            raw_text = response.text or "[]"
+            pages_data = json.loads(raw_text)
+            
+            formatted_pages = []
+            if isinstance(pages_data, list):
+                for p in pages_data:
+                    if isinstance(p, dict) and "text" in p and p["text"].strip():
+                        formatted_pages.append({
+                            "page_number": int(p.get("page_number", len(formatted_pages) + 1)),
+                            "text": str(p["text"]).strip()
+                        })
+            
+            logger.info(f"Gemini OCR successfully extracted text from {len(formatted_pages)} pages.")
+            return formatted_pages
+            
+        except APIError as e:
+            raise RuntimeError(f"Gemini OCR API Error: {str(e)}")
+        except Exception as e:
+            raise RuntimeError(f"Unexpected error during Gemini OCR parsing: {str(e)}")
+        finally:
+            # Clean up uploaded file from Gemini storage
+            try:
+                self.client.files.delete(name=uploaded_file.name)
+            except Exception:
+                pass

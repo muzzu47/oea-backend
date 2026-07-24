@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, BackgroundTasks, UploadFile, File, Form
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from shared.database import get_db
+from shared.database import get_db, SessionLocal
 
 # Core Services
 from question_generation.ingestion_parser.pdf_parser_service import PdfParserService
@@ -90,25 +90,35 @@ def ingest_textbook(
     author: Optional[str] = Form(None),
     exam_type: Optional[str] = Form(None),
     file: UploadFile = File(...),
-    orchestrator: IngestTextbookOrchestrator = Depends(get_ingest_orchestrator)
 ):
     """
     HTTP Form endpoint accepting textbook uploads.
     Fires the ingestion pipeline asynchronously in a background task to prevent request timeouts.
     """
-    # Create temporary uploads folder inside the workspace workspace
+    # Create temporary uploads folder inside the workspace
     uploads_dir = os.path.join(os.getcwd(), "temp_uploads")
     os.makedirs(uploads_dir, exist_ok=True)
     
     temp_file_path = os.path.join(uploads_dir, file.filename)
     
     # Save the uploaded file locally
+    file.file.seek(0)
     with open(temp_file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    # Define background execution closure
+    file_size = os.path.getsize(temp_file_path)
+    logger.info(f"Received upload '{file.filename}', saved to disk ({file_size} bytes).")
+
+    # Define background execution closure with a dedicated fresh DB session
     def run_ingestion_pipeline():
+        db = SessionLocal()
         try:
+            parser = PdfParserService()
+            llm_provider = GeminiLlmProvider()
+            embedding_service = EmbeddingService(llm_provider)
+            repo = TextbookRepository(db)
+            orchestrator = IngestTextbookOrchestrator(parser, embedding_service, repo)
+
             result = orchestrator.execute(
                 file_path=temp_file_path,
                 title=title,
@@ -118,11 +128,14 @@ def ingest_textbook(
             )
             logger.info(f"Asynchronous textbook ingestion complete: {result}")
         except Exception as e:
-            logger.error(f"Asynchronous textbook ingestion failed: {str(e)}")
+            logger.error(f"Asynchronous textbook ingestion failed: {str(e)}", exc_info=True)
         finally:
-            # Clean up the temporary upload file
+            db.close()
             if os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
+                try:
+                    os.remove(temp_file_path)
+                except Exception:
+                    pass
 
     # Queue task for execution
     background_tasks.add_task(run_ingestion_pipeline)

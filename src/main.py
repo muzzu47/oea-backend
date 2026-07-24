@@ -1,10 +1,17 @@
+import logging
 import uvicorn
 from fastapi import FastAPI
 from shared.database import engine, Base
 from question_generation.presentation.routes import router as questions_router
 
+# Configure root logger to output INFO and ERROR logs to the console
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
+logger = logging.getLogger(__name__)
+
 # Auto-generate database tables on startup.
-# While Alembic is preferred in production, this is the perfect schema generator for MVP environments.
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(

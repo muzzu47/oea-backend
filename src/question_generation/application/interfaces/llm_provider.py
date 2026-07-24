@@ -32,3 +32,11 @@ class LlmProvider(ABC):
         Generates vector embeddings for a list of strings in batches.
         """
         pass
+
+    @abstractmethod
+    def extract_pdf_content(self, file_path: str) -> List[dict]:
+        """
+        Performs multimodal OCR parsing on a PDF file to extract page-by-page text.
+        Returns format: [{"page_number": 1, "text": "..."}]
+        """
+        pass

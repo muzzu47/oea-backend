@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  db:
+    # Official PostgreSQL image pre-packaged with the pgvector extension
+    image: pgvector/pgvector:pg16
+    container_name: oea_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: oea_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # Database Admin UI dashboard
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: oea_pgadmin
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@oea.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+
+volumes:
+  postgres_data:

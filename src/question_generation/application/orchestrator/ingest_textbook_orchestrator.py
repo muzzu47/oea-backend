@@ -47,11 +47,10 @@ class IngestTextbookOrchestrator:
         Runs the textbook ingestion use case workflow.
         Returns a dictionary representing the operation results or failure metrics.
         """
-        logger.info(f"Orchestrated Ingestion started for: {title}")
-
-        # Step 1: Parse the PDF
+        # Step 1: Parse the PDF (with automatic Gemini OCR fallback if local parser returns 0 text)
         try:
-            pages_data = self.parser.parse(file_path)
+            llm_provider = getattr(self.embedding_service, "llm_provider", None)
+            pages_data = self.parser.parse(file_path, llm_provider=llm_provider)
             logger.info(f"Step 1: Parsed {len(pages_data)} pages from PDF file.")
         except Exception as e:
             logger.error(f"Step 1 Failed: PDF parsing failed: {str(e)}")
